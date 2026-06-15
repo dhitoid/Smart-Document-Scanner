@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Doc Scanner</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        #preview { width: 100%; max-width: 400px; margin-top: 20px; filter: grayscale(100%) contrast(1.2); }
+        .btn { padding: 15px 30px; background: #007AFF; color: white; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Scanner Dokumen</h1>
+    <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none">
+    <button class="btn" onclick="document.getElementById('cameraInput').click()">Ambil Foto Dokumen</button>
+    <img id="preview" alt="Hasil Scan">
+    <button id="shareBtn" class="btn" style="display:none; margin-top:10px;">Bagikan / Simpan</button>
+
+    <script>
+        const input = document.getElementById('cameraInput');
+        const preview = document.getElementById('preview');
+        const shareBtn = document.getElementById('shareBtn');
+
+        input.onchange = e => {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onload = () => {
+                preview.src = reader.result;
+                shareBtn.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        };
+
+        shareBtn.onclick = async () => {
+            // Web Share API untuk iOS
+            if (navigator.share) {
+                try {
+                    await navigator.share({ title: 'Dokumen Scan', text: 'Hasil scan dari PWA saya', url: preview.src });
+                } catch (err) { console.error('Gagal berbagi:', err); }
+            }
+        };
+    </script>
+</body>
+</html>

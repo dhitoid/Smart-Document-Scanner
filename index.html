@@ -15,7 +15,6 @@
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
 
     <style>
-        /* Animasi Muncul ke Atas */
         @keyframes fade-in-up {
             0% { opacity: 0; transform: translateY(10px); }
             100% { opacity: 1; transform: translateY(0); }
@@ -24,7 +23,6 @@
             animation: fade-in-up 0.4s ease-out forwards;
         }
 
-        /* Animasi Laser Scanner */
         @keyframes scan-laser {
             0% { top: 0; opacity: 0; }
             10% { opacity: 1; }
@@ -35,7 +33,6 @@
             animation: scan-laser 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
         }
 
-        /* Sudut-sudut bingkai ala kamera futuristik */
         .scan-bracket-tl { border-top: 2px solid #06b6d4; border-left: 2px solid #06b6d4; }
         .scan-bracket-tr { border-top: 2px solid #06b6d4; border-right: 2px solid #06b6d4; }
         .scan-bracket-bl { border-bottom: 2px solid #06b6d4; border-left: 2px solid #06b6d4; }
@@ -102,7 +99,7 @@
                         <label class="text-[10px] text-zinc-400 block mb-1 uppercase tracking-wider font-semibold">Sub Total (Rp)</label>
                         <div class="relative">
                             <i class="ph ph-money absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-lg"></i>
-                            <input id="sub-bill" type="number" placeholder="0" class="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl pl-10 pr-4 py-3 text-xl font-bold text-indigo-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all">
+                            <input id="sub-bill" type="text" inputmode="numeric" placeholder="0" class="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl pl-10 pr-4 py-3 text-xl font-bold text-indigo-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all">
                         </div>
                     </div>
                     
@@ -216,14 +213,27 @@
             if (navigator.vibrate) navigator.vibrate(15);
         }
 
-        // SISTEM SINKRONISASI LOGGING BARU (PERBAIKAN MACET 0%)
+        // FUNGSI FORMAT RUPIAH (Tambahan Titik Otomatis)
+        function formatRupiah(angka) {
+            let number_string = angka.toString().replace(/[^,\d]/g, '');
+            let split = number_string.split(',');
+            let sisa = split[0].length % 3;
+            let rupiah = split[0].substr(0, sisa);
+            let ribuan = split[0].substr(sisa).match(/\d{3}/gi);
+
+            if (ribuan) {
+                let separator = sisa ? '.' : '';
+                rupiah += separator + ribuan.join('.');
+            }
+            return split[1] != undefined ? rupiah + ',' + split[1] : rupiah;
+        }
+
         cameraInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
             triggerHaptic();
             
-            // Tampilkan panel animasi laser secara realtime
             const reader = new FileReader();
             reader.onload = function(e) {
                 imagePreview.src = e.target.result;
@@ -238,35 +248,49 @@
             aiStatusBadge.className = 'text-[10px] uppercase tracking-wider font-bold bg-indigo-500/20 text-indigo-400 px-2 py-1 rounded-md border border-indigo-500/50 animate-pulse';
 
             try {
-                // Menggunakan modul global tingkat tinggi untuk performa caching optimal di Safari iOS
                 const result = await Tesseract.recognize(file, 'eng', {
                     logger: m => {
-                        // Sadap nilai dari seluruh fase daur hidup AI agar teks persen (%) langsung jalan berkelanjutan
                         const progress = Math.round(m.progress * 100);
                         scanProgressText.innerText = `${progress}%`;
                         
-                        if (m.status === 'loading tesseract core') {
-                            scanStatusText.innerText = 'Memuat modul inti...';
-                        } else if (m.status === 'loading language traineddata') {
-                            scanStatusText.innerText = 'Mengunduh paket bahasa...';
-                        } else if (m.status === 'initializing api') {
-                            scanStatusText.innerText = 'Menyelaraskan mesin AI...';
-                        } else if (m.status === 'recognizing text') {
-                            scanStatusText.innerText = 'Memindai angka struk...';
-                        }
+                        if (m.status === 'loading tesseract core') scanStatusText.innerText = 'Memuat modul inti...';
+                        else if (m.status === 'loading language traineddata') scanStatusText.innerText = 'Mengunduh paket...';
+                        else if (m.status === 'initializing api') scanStatusText.innerText = 'Menyelaraskan AI...';
+                        else if (m.status === 'recognizing text') scanStatusText.innerText = 'Memindai harga...';
                     }
                 });
 
                 const text = result.data.text;
+                const lines = text.split('\n');
+                let potentialTotals = [];
+
+                // LOGIKA OCR BARU: Cari baris yang ada kata "Total", "Bayar", dsb.
+                lines.forEach(line => {
+                    const lowerLine = line.toLowerCase();
+                    if (lowerLine.includes('total') || lowerLine.includes('bayar') || lowerLine.includes('jumlah') || lowerLine.includes('amount')) {
+                        const cleanLine = line.replace(/[.,]/g, '');
+                        const nums = cleanLine.match(/\b\d{4,8}\b/g);
+                        if (nums) {
+                            potentialTotals.push(...nums.map(Number));
+                        }
+                    }
+                });
+
+                let finalTotal = 0;
                 
-                // Ekstraksi pembersihan string nominal rupiah (menghapus titik/koma gangguan)
-                const cleanText = text.replace(/[.,]/g, '');
-                const numbers = cleanText.match(/\b\d{4,7}\b/g); 
+                if (potentialTotals.length > 0) {
+                    // Ambil angka terbesar hanya dari baris yang mengandung kata kunci total harga
+                    finalTotal = Math.max(...potentialTotals);
+                } else {
+                    // Fallback jika tidak menemukan kata kunci
+                    const cleanText = text.replace(/[.,]/g, '');
+                    const numbers = cleanText.match(/\b\d{4,8}\b/g); 
+                    if (numbers) finalTotal = Math.max(...numbers.map(Number));
+                }
                 
-                if (numbers && numbers.length > 0) {
-                    const highestNumber = Math.max(...numbers.map(Number));
-                    subBillInput.value = highestNumber;
-                    subBill = highestNumber;
+                if (finalTotal > 0) {
+                    subBill = finalTotal;
+                    subBillInput.value = formatRupiah(finalTotal); // Update ke input dengan titik
                     calculateSplit();
                     
                     scanStatusText.innerText = 'Berhasil diproses!';
@@ -278,14 +302,13 @@
                 }
             } catch (error) {
                 console.error("Kesalahan sistem:", error);
-                scanStatusText.innerText = 'Gagal membaca otomatis. Ketik manual.';
+                scanStatusText.innerText = 'Gagal membaca otomatis.';
                 aiStatusBadge.innerText = 'FAILED';
                 aiStatusBadge.className = 'text-[10px] uppercase tracking-wider font-bold bg-rose-500/20 text-rose-400 px-2 py-1 rounded-md border border-rose-500/50';
             } finally {
                 laserLine.classList.remove('animate-laser');
                 laserLine.classList.add('hidden');
                 
-                // Jendela scanner otomatis berganti ke form input normal setelah 3 detik
                 setTimeout(() => {
                     scannerBox.classList.add('hidden');
                     uploadBox.classList.remove('hidden');
@@ -295,14 +318,22 @@
             }
         });
 
+        // Event listener untuk memformat otomatis saat diketik manual
+        subBillInput.addEventListener('input', function(e) {
+            let rawValue = this.value.replace(/\./g, '');
+            this.value = formatRupiah(rawValue);
+            updateCalculations();
+        });
+
         const updateCalculations = () => {
-            subBill = Number(subBillInput.value) || 0;
+            // Hilangkan titik dulu sebelum dihitung di background
+            const cleanSubBill = subBillInput.value.replace(/\./g, '');
+            subBill = Number(cleanSubBill) || 0;
             taxPercent = Number(taxInput.value) || 0;
             servicePercent = Number(serviceInput.value) || 0;
             calculateSplit();
         };
 
-        subBillInput.addEventListener('input', updateCalculations);
         taxInput.addEventListener('input', updateCalculations);
         serviceInput.addEventListener('input', updateCalculations);
 

@@ -77,7 +77,7 @@
                 </label>
 
                 <div id="scanner-box" class="hidden relative w-full h-48 bg-zinc-950 rounded-xl overflow-hidden border border-zinc-800">
-                    <img id="image-preview" src="" class="absolute inset-0 w-full h-full object-contain opacity-50 mix-blend-luminosity" />
+                    <img id="image-preview" src="" class="absolute inset-0 w-full h-full object-contain opacity-40 mix-blend-luminosity" />
                     
                     <div class="absolute inset-2">
                         <div class="absolute top-0 left-0 w-6 h-6 scan-bracket-tl"></div>
@@ -91,7 +91,7 @@
                     <div class="absolute bottom-3 left-3 right-3 flex items-center justify-between bg-zinc-900/90 backdrop-blur border border-zinc-700 rounded-lg px-3 py-2 z-20">
                         <div class="flex items-center gap-2">
                             <i class="ph ph-spinner animate-spin text-cyan-400"></i>
-                            <span id="scan-status-text" class="text-xs text-cyan-400 font-mono tracking-tight">Memulai mesin AI...</span>
+                            <span id="scan-status-text" class="text-xs text-cyan-400 font-mono tracking-tight">Menghubungkan core...</span>
                         </div>
                         <span id="scan-progress-text" class="text-xs font-bold text-white font-mono">0%</span>
                     </div>
@@ -186,7 +186,6 @@
         let taxPercent = 0;
         let servicePercent = 0;
 
-        // Element DOM Scanner
         const uploadBox = document.getElementById('upload-box');
         const scannerBox = document.getElementById('scanner-box');
         const cameraInput = document.getElementById('camera-input');
@@ -196,12 +195,10 @@
         const scanProgressText = document.getElementById('scan-progress-text');
         const aiStatusBadge = document.getElementById('ai-status-badge');
         
-        // Element Input
         const subBillInput = document.getElementById('sub-bill');
         const taxInput = document.getElementById('tax-input');
         const serviceInput = document.getElementById('service-input');
         
-        // Element Friends & Result
         const friendNameInput = document.getElementById('friend-name');
         const addFriendBtn = document.getElementById('add-friend-btn');
         const friendsList = document.getElementById('friends-list');
@@ -219,14 +216,14 @@
             if (navigator.vibrate) navigator.vibrate(15);
         }
 
-        // FUNGSI SCANNER CANGGIH
+        // SISTEM SINKRONISASI LOGGING BARU (PERBAIKAN MACET 0%)
         cameraInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
             triggerHaptic();
             
-            // 1. Tampilkan UI Scanner
+            // Tampilkan panel animasi laser secara realtime
             const reader = new FileReader();
             reader.onload = function(e) {
                 imagePreview.src = e.target.result;
@@ -237,60 +234,58 @@
             };
             reader.readAsDataURL(file);
 
-            // Update Badge Status
-            aiStatusBadge.innerText = 'SCANNING...';
+            aiStatusBadge.innerText = 'PROCESSING...';
             aiStatusBadge.className = 'text-[10px] uppercase tracking-wider font-bold bg-indigo-500/20 text-indigo-400 px-2 py-1 rounded-md border border-indigo-500/50 animate-pulse';
 
             try {
-                // 2. Inisiasi Tesseract Worker untuk Real-Time Progress
-                const worker = await Tesseract.createWorker({
+                // Menggunakan modul global tingkat tinggi untuk performa caching optimal di Safari iOS
+                const result = await Tesseract.recognize(file, 'eng', {
                     logger: m => {
-                        // Sadap status dari sistem AI ke UI
-                        if(m.status === 'recognizing text') {
-                            scanStatusText.innerText = 'Mengekstrak data struk...';
-                            const progress = Math.round(m.progress * 100);
-                            scanProgressText.innerText = `${progress}%`;
-                        } else {
-                            scanStatusText.innerText = 'Mempersiapkan AI Engine...';
+                        // Sadap nilai dari seluruh fase daur hidup AI agar teks persen (%) langsung jalan berkelanjutan
+                        const progress = Math.round(m.progress * 100);
+                        scanProgressText.innerText = `${progress}%`;
+                        
+                        if (m.status === 'loading tesseract core') {
+                            scanStatusText.innerText = 'Memuat modul inti...';
+                        } else if (m.status === 'loading language traineddata') {
+                            scanStatusText.innerText = 'Mengunduh paket bahasa...';
+                        } else if (m.status === 'initializing api') {
+                            scanStatusText.innerText = 'Menyelaraskan mesin AI...';
+                        } else if (m.status === 'recognizing text') {
+                            scanStatusText.innerText = 'Memindai angka struk...';
                         }
                     }
                 });
 
-                await worker.loadLanguage('eng+ind'); // Pake inggris & indonesia agar lebih akurat
-                await worker.initialize('eng+ind');
-                
-                const result = await worker.recognize(file);
-                await worker.terminate();
-
                 const text = result.data.text;
                 
-                // 3. Eksekusi Pencarian Angka
-                const numbers = text.match(/\b\d{4,7}\b/g); 
+                // Ekstraksi pembersihan string nominal rupiah (menghapus titik/koma gangguan)
+                const cleanText = text.replace(/[.,]/g, '');
+                const numbers = cleanText.match(/\b\d{4,7}\b/g); 
+                
                 if (numbers && numbers.length > 0) {
                     const highestNumber = Math.max(...numbers.map(Number));
                     subBillInput.value = highestNumber;
                     subBill = highestNumber;
                     calculateSplit();
                     
-                    // UI Sukses
-                    scanStatusText.innerText = 'Data berhasil ditemukan!';
+                    scanStatusText.innerText = 'Berhasil diproses!';
                     scanProgressText.innerText = '100%';
                     aiStatusBadge.innerText = 'SUCCESS';
                     aiStatusBadge.className = 'text-[10px] uppercase tracking-wider font-bold bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-md border border-emerald-500/50';
                 } else {
-                    throw new Error("Angka tidak ditemukan");
+                    throw new Error("Pola angka tidak ditemukan");
                 }
             } catch (error) {
-                console.error("Gagal membaca dokumen:", error);
-                scanStatusText.innerText = 'Gagal membaca struk. Input manual.';
+                console.error("Kesalahan sistem:", error);
+                scanStatusText.innerText = 'Gagal membaca otomatis. Ketik manual.';
                 aiStatusBadge.innerText = 'FAILED';
                 aiStatusBadge.className = 'text-[10px] uppercase tracking-wider font-bold bg-rose-500/20 text-rose-400 px-2 py-1 rounded-md border border-rose-500/50';
             } finally {
-                // Matikan Laser
                 laserLine.classList.remove('animate-laser');
                 laserLine.classList.add('hidden');
                 
-                // Kembalikan kotak ke mode upload setelah 3 detik
+                // Jendela scanner otomatis berganti ke form input normal setelah 3 detik
                 setTimeout(() => {
                     scannerBox.classList.add('hidden');
                     uploadBox.classList.remove('hidden');

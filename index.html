@@ -3,44 +3,239 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Doc Scanner</title>
+    <title>BillSplitter AI</title>
+    <!-- PWA Meta Tags -->
     <link rel="manifest" href="manifest.json">
-    <style>
-        body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        #preview { width: 100%; max-width: 400px; margin-top: 20px; filter: grayscale(100%) contrast(1.2); }
-        .btn { padding: 15px 30px; background: #007AFF; color: white; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; }
-    </style>
+    <meta name="theme-color" content="#0f172a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="https://placehold.co/192x192/0f172a/ffffff?text=Bill">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- Tesseract.js untuk OCR / Scan Struk -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
-<body>
-    <h1>Scanner Dokumen</h1>
-    <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none">
-    <button class="btn" onclick="document.getElementById('cameraInput').click()">Ambil Foto Dokumen</button>
-    <img id="preview" alt="Hasil Scan">
-    <button id="shareBtn" class="btn" style="display:none; margin-top:10px;">Bagikan / Simpan</button>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500/30">
 
+    <!-- Container Utama (Maksimal Lebar HP) -->
+    <main class="max-w-md mx-auto p-4 pb-24 min-h-screen flex flex-col justify-between">
+        
+        <!-- Header -->
+        <header class="text-center my-6">
+            <h1 class="text-3xl font-extrabold bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
+                💸 BillSplitter Pro
+            </h1>
+            <p class="text-xs text-slate-400 mt-1">Scan struk pintar & bagi tagihan instan</p>
+        </header>
+
+        <!-- Card Utama -->
+        <div class="space-y-6 flex-1">
+            
+            <!-- SEKSI 1: Ambil Foto / Scan -->
+            <section class="bg-slate-800/60 backdrop-blur-md border border-slate-700/50 rounded-2xl p-5 shadow-xl">
+                <h2 class="text-lg font-bold mb-3 flex items-center gap-2">📸 1. Scan Struk Belanja</h2>
+                
+                <!-- Input Kamera Bawaan HP -->
+                <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-600 rounded-xl cursor-pointer hover:border-emerald-500 transition bg-slate-800/40">
+                    <div class="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
+                        <span class="text-2xl mb-1">📷</span>
+                        <p class="text-sm font-semibold text-slate-300">Ambil Foto Struk</p>
+                        <p class="text-xxs text-slate-500 mt-1">Kamera langsung mendeteksi angka otomatis</p>
+                    </div>
+                    <input id="camera-input" type="file" accept="image/*" capture="environment" class="hidden" />
+                </label>
+
+                <!-- Loading Spinner -->
+                <div id="loading-ocr" class="hidden mt-4 text-center text-sm text-emerald-400 animate-pulse">
+                    ⏳ AI sedang membaca struk... Mohon tunggu...
+                </div>
+
+                <!-- Input Nominal Total -->
+                <div class="mt-4">
+                    <label class="text-xs text-slate-400 block mb-1 font-medium">Total Tagihan (Rp)</label>
+                    <input id="total-bill" type="number" placeholder="Masukkan atau hasil scan..." class="w-full bg-slate-900/80 border border-slate-700 rounded-xl px-4 py-3 text-lg font-bold text-emerald-400 focus:outline-none focus:border-emerald-500 transition">
+                </div>
+            </section>
+
+            <!-- SEKSI 2: Tambah Teman -->
+            <section class="bg-slate-800/60 backdrop-blur-md border border-slate-700/50 rounded-2xl p-5 shadow-xl">
+                <h2 class="text-lg font-bold mb-3">👥 2. Siapa yang Patungan?</h2>
+                <div class="flex gap-2 mb-3">
+                    <input id="friend-name" type="text" placeholder="Nama teman..." class="flex-1 bg-slate-900/80 border border-slate-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500">
+                    <button id="add-friend-btn" class="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-xl text-sm font-bold transition shadow-lg active:scale-95">+ Tambah</button>
+                </div>
+                <div id="friends-list" class="flex flex-wrap gap-2 min-h-[40px] items-center">
+                    <!-- Daftar teman akan muncul di sini secara dinamis -->
+                    <span class="text-xs text-slate-500 italic">Belum ada teman yang ditambahkan.</span>
+                </div>
+            </section>
+
+            <!-- SEKSI 3: Hasil Pembagian -->
+            <section id="result-section" class="hidden bg-gradient-to-br from-emerald-950/40 to-slate-800/60 backdrop-blur-md border border-emerald-500/20 rounded-2xl p-5 shadow-xl animate-fade-in">
+                <h2 class="text-lg font-bold text-emerald-400 mb-3">💰 3. Rincian Pembayaran</h2>
+                <div class="bg-slate-900/60 rounded-xl p-4 border border-slate-800 space-y-2">
+                    <div class="flex justify-between text-sm border-b border-slate-800 pb-2">
+                        <span class="text-slate-400">Total Tagihan:</span>
+                        <span id="res-total" class="font-bold">Rp 0</span>
+                    </div>
+                    <div class="flex justify-between text-sm border-b border-slate-800 pb-2">
+                        <span class="text-slate-400">Jumlah Orang:</span>
+                        <span id="res-count" class="font-bold">0 Orang</span>
+                    </div>
+                    <div class="flex justify-between text-lg pt-1 text-emerald-300">
+                        <span class="font-bold">Per Orang:</span>
+                        <span id="res-per-person" class="font-extrabold">Rp 0</span>
+                    </div>
+                </div>
+
+                <!-- Tombol Share Native HP -->
+                <button id="share-btn" class="w-full mt-4 bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition active:scale-95 shadow-lg">
+                    🔗 Bagikan Hasil ke WhatsApp
+                </button>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- LOGIKA APLIKASI -->
     <script>
-        const input = document.getElementById('cameraInput');
-        const preview = document.getElementById('preview');
-        const shareBtn = document.getElementById('shareBtn');
+        // State data aplikasi
+        let friends = [];
+        let totalBill = 0;
 
-        input.onchange = e => {
+        // Elemen DOM
+        const cameraInput = document.getElementById('camera-input');
+        const loadingOcr = document.getElementById('loading-ocr');
+        const totalBillInput = document.getElementById('total-bill');
+        const friendNameInput = document.getElementById('friend-name');
+        const addFriendBtn = document.getElementById('add-friend-btn');
+        const friendsList = document.getElementById('friends-list');
+        const resultSection = document.getElementById('result-section');
+        const resTotal = document.getElementById('res-total');
+        const resCount = document.getElementById('res-count');
+        const resPerPerson = document.getElementById('res-per-person');
+        const shareBtn = document.getElementById('share-btn');
+
+        // Fungsi Getar Ringan (Haptic) untuk HP Android/iOS pendukung
+        function triggerHaptic() {
+            if (navigator.vibrate) navigator.vibrate(15);
+        }
+
+        // 1. Logika OCR - Scan Gambar Struk menggunakan Tesseract.js
+        cameraInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
-            const reader = new FileReader();
-            reader.onload = () => {
-                preview.src = reader.result;
-                shareBtn.style.display = 'block';
-            };
-            reader.readAsDataURL(file);
+            if (!file) return;
+
+            triggerHaptic();
+            loadingOcr.classList.remove('hidden');
+
+            try {
+                // Memproses gambar langsung di browser sisi client (tanpa server backend!)
+                const result = await Tesseract.recognize(file, 'eng');
+                const text = result.data.text;
+                
+                // Regex sederhana untuk mencari deretan angka besar (asumsi total tagihan)
+                const numbers = text.match(/\b\d{4,7}\b/g); 
+                if (numbers && numbers.length > 0) {
+                    // Ambil angka terbesar yang ditemukan di struk
+                    const highestNumber = Math.max(...numbers.map(Number));
+                    totalBillInput.value = highestNumber;
+                    totalBill = highestNumber;
+                    calculateSplit();
+                } else {
+                    alert("Struk kurang jelas, silakan masukkan nominal total secara manual.");
+                }
+            } catch (error) {
+                console.error("Gagal membaca gambar:", error);
+                alert("Gagal memproses gambar secara otomatis.");
+            } finally {
+                loadingOcr.classList.add('hidden');
+            }
+        });
+
+        // Pantau input manual jika OCR meleset
+        totalBillInput.addEventListener('input', (e) => {
+            totalBill = Number(e.target.value) || 0;
+            calculateSplit();
+        });
+
+        // 2. Logika Menambah Daftar Teman
+        addFriendBtn.addEventListener('click', () => {
+            const name = friendNameInput.value.trim();
+            if (!name) return;
+
+            triggerHaptic();
+            friends.push(name);
+            friendNameInput.value = '';
+            renderFriends();
+            calculateSplit();
+        });
+
+        function renderFriends() {
+            if (friends.length === 0) {
+                friendsList.innerHTML = '<span class="text-xs text-slate-500 italic">Belum ada teman yang ditambahkan.</span>';
+                return;
+            }
+            friendsList.innerHTML = friends.map((name, index) => `
+                <span class="bg-slate-700/80 border border-slate-600 px-3 py-1 rounded-full text-xs flex items-center gap-2 font-medium">
+                    ${name}
+                    <button onclick="removeFriend(${index})" class="text-rose-400 hover:text-rose-300 font-bold ml-1">×</button>
+                </span>
+            `).join('');
+        }
+
+        window.removeFriend = function(index) {
+            triggerHaptic();
+            friends.splice(index, 1);
+            renderFriends();
+            calculateSplit();
         };
 
-        shareBtn.onclick = async () => {
-            // Web Share API untuk iOS
+        // 3. Logika Hitung Pembagian & Tampilkan Hasil
+        function calculateSplit() {
+            if (totalBill > 0 && friends.length > 0) {
+                const perPerson = Math.round(totalBill / friends.length);
+                
+                resTotal.innerText = `Rp ${totalBill.toLocaleString('id-ID')}`;
+                resCount.innerText = `${friends.length} Orang`;
+                resPerPerson.innerText = `Rp ${perPerson.toLocaleString('id-ID')}`;
+                
+                resultSection.classList.remove('hidden');
+            } else {
+                resultSection.classList.add('hidden');
+            }
+        }
+
+        // 4. Web Share API: Menghubungkan langsung ke Share System HP (iOS / Android)
+        shareBtn.addEventListener('click', async () => {
+            triggerHaptic();
+            const perPerson = Math.round(totalBill / friends.length);
+            const textShare = `📊 *Rincian Patungan Bill* 📊\n\n💰 Total Tagihan: Rp ${totalBill.toLocaleString('id-ID')}\n👥 Anggota (${friends.length}): ${friends.join(', ')}\n\n⭐ *Per Orang Bayar: Rp ${perPerson.toLocaleString('id-ID')}* \n\nDitulis lewat BillSplitter Pro App.`;
+
             if (navigator.share) {
                 try {
-                    await navigator.share({ title: 'Dokumen Scan', text: 'Hasil scan dari PWA saya', url: preview.src });
-                } catch (err) { console.error('Gagal berbagi:', err); }
+                    await navigator.share({
+                        title: 'Bagi Tagihan Struk',
+                        text: textShare
+                    });
+                } catch (err) {
+                    console.log('Batal membagikan:', err);
+                }
+            } else {
+                // Fallback jika browser HP versi lama tidak mendukung Web Share API
+                navigator.clipboard.writeText(textShare);
+                alert('Teks rincian berhasil disalin ke clipboard! Silakan paste manual ke WhatsApp.');
             }
-        };
+        });
+
+        // 5. Registrasi Service Worker agar bisa berjalan offline dan bisa di-install
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('Service Worker terdaftar!', reg))
+                    .catch(err => console.log('Gagal daftar SW:', err));
+            });
+        }
     </script>
 </body>
 </html>

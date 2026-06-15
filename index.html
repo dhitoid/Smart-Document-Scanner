@@ -265,67 +265,115 @@
                 
                 let possibleTotals = [];
                 let taxAmount = 0;
+                let lastValidNumber = 0;
+                let isMinimarket = false; // Flag khusus untuk struk rumit
 
-                // LOGIKA OCR ANTI-NYASAR (FINAL)
+                // LOGIKA OCR ANTI-NYASAR (VERSI SUPER)
                 lines.forEach(line => {
                     const lowerLine = line.toLowerCase();
                     
-                    // 1. FILTER KERAS: Abaikan baris uang kembalian, tunai, atau tanggal/waktu
-                    if (lowerLine.includes('cash') || lowerLine.includes('tunai') || lowerLine.includes('change') || lowerLine.includes('kembali')) return;
-                    if (lowerLine.includes('waktu') || lowerLine.includes('tanggal') || lowerLine.includes('shift') || lowerLine.includes('no.')) return;
+                    // 1. DETEKSI JENIS STRUK: Mencegah error auto-pajak di minimarket
+                    if (lowerLine.includes('dpp') || lowerLine.includes('anda hemat') || lowerLine.includes('harga jual') || lowerLine.includes('indomaret') || lowerLine.includes('alfamart')) {
+                        isMinimarket = true;
+                    }
 
-                    // 2. TANGKAP ANGKA: Ambil blok angka paling kanan di baris tersebut
-                    const numberBlocks = line.match(/\d(?:[\d\s.,]*\d)?/g);
+                    // 2. FILTER KERAS: Blokir baris yang PASTI BUKAN total tagihan utama
+                    // Termasuk memblokir jebakan "Anda Hemat" atau nomor barcode
+                    if (
+                        (lowerLine.includes('tunai') && !lowerLine.includes('non')) || 
+                        lowerLine.includes('cash') || 
+                        lowerLine.includes('change') || 
+                        lowerLine.includes('kembali') ||
+                        lowerLine.includes('hemat') || 
+                        lowerLine.includes('saving') || 
+                        lowerLine.includes('diskon') || 
+                        lowerLine.includes('discount') || 
+                        lowerLine.includes('waktu') || 
+                        lowerLine.includes('tanggal') || 
+                        lowerLine.includes('shift') || 
+                        lowerLine.includes('telp') || 
+                        lowerLine.includes('no.') || 
+                        lowerLine.includes('rp.') 
+                    ) {
+                        return; // Lewati baris ini sepenuhnya
+                    }
+
+                    // 3. TANGKAP ANGKA: Ekstrak nominal harga
+                    const numberBlocks = line.match(/\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|\d+/g);
                     if (!numberBlocks) return;
                     
                     let lastBlock = numberBlocks[numberBlocks.length - 1];
-                    // Bersihkan titik/koma di belakang (misal .00) dan hapus semua simbol
-                    lastBlock = lastBlock.replace(/[.,]00$/g, '');
+                    lastBlock = lastBlock.replace(/[.,]00$/g, ''); // Bersihkan buntut .00
                     const num = Number(lastBlock.replace(/[^\d]/g, ''));
 
-                    // 3. KATEGORIKAN: Cek apakah itu baris pajak atau baris total/bayar
-                    if (num >= 1000) {
-                        if (lowerLine.includes('pajak') || lowerLine.includes('tax') || lowerLine.includes('ppn') || lowerLine.includes('pb1') || lowerLine.includes('pb 1')) {
-                            taxAmount = Math.max(taxAmount, num);
-                        } 
-                        // "dibayar" akan sangat cocok untuk struk Pertamina
-                        else if (lowerLine.includes('total') || lowerLine.includes('bayar') || lowerLine.includes('dibayar') || lowerLine.includes('jumlah') || lowerLine.includes('due') || lowerLine.includes('subtotal') || lowerLine.includes('amount')) {
-                            // Masukkan semua angka yang potensial ke dalam antrean
-                            possibleTotals.push(num);
-                        }
+                    // Abaikan angka receh di bawah Rp1.000 atau angka terlalu besar (misal barcode HP)
+                    if (num < 1000 || num > 50000000) return;
+                    
+                    lastValidNumber = num; // Simpan sebagai fallback jika teks "Total" buram
+
+                    // 4. KATEGORIKAN ANGKA
+                    if (lowerLine.includes('pajak') || lowerLine.includes('tax') || lowerLine.includes('ppn') || lowerLine.includes('pb1') || lowerLine.includes('pb 1')) {
+                        taxAmount = Math.max(taxAmount, num);
+                    } 
+                    else if (
+                        lowerLine.includes('total') || 
+                        lowerLine.includes('bayar') || 
+                        lowerLine.includes('dibayar') || 
+                        lowerLine.includes('jumlah') || 
+                        lowerLine.includes('harga jual') || 
+                        lowerLine.includes('purchase') || 
+                        lowerLine.includes('nett') || 
+                        lowerLine.includes('due') || 
+                        lowerLine.includes('amount')
+                    ) {
+                        possibleTotals.push(num);
                     }
                 });
 
+                let finalAmount = 0;
+                
                 if (possibleTotals.length > 0) {
-                    // AMBIL YANG TERAKHIR: Di struk manapun, nilai akhir yang ditagih pasti ada di baris paling bawah (sebelum Cash)
-                    let finalAmount = possibleTotals[possibleTotals.length - 1];
-
-                    // Jika ada pajak, pisahkan pajaknya (karena AI berasumsi finalAmount adalah Grand Total)
-                    if (taxAmount > 0 && finalAmount > taxAmount) {
-                        subBill = finalAmount - taxAmount;
-                        
-                        // Update UI Persentase Pajak Otomatis
-                        let calculatedTaxPercent = Math.round((taxAmount / subBill) * 100);
-                        if (calculatedTaxPercent > 0 && calculatedTaxPercent <= 25) {
-                            taxInput.value = calculatedTaxPercent;
-                            taxPercent = calculatedTaxPercent;
-                        }
-                    } else {
-                        // Jika tidak ada pajak (seperti struk bensin), angka tersebut murni subtotal/total yang harus dibagi
-                        subBill = finalAmount;
-                    }
-
-                    // Tembak ke UI
-                    subBillInput.value = formatRupiah(subBill);
-                    calculateSplit();
+                    finalAmount = possibleTotals[possibleTotals.length - 1];
                     
-                    scanStatusText.innerText = 'Berhasil diproses!';
-                    scanProgressText.innerText = '100%';
-                    aiStatusBadge.innerText = 'SUCCESS';
-                    aiStatusBadge.className = 'text-[10px] uppercase tracking-wider font-bold bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-md border border-emerald-500/50';
+                    // Cek silang: Jika AI salah ambil angka bawah yang mendadak kecil, paksa ambil angka terbesar
+                    let maxPossible = Math.max(...possibleTotals);
+                    if (finalAmount < maxPossible / 2) { 
+                        finalAmount = maxPossible; 
+                    }
+                } else if (lastValidNumber > 0) {
+                    // FALLBACK: Jika kata "Total" tidak terbaca karena struk lecek/buram (seperti foto ke-4)
+                    finalAmount = lastValidNumber;
                 } else {
                     throw new Error("Nominal uang tidak ditemukan");
                 }
+
+                // 5. PENYESUAIAN PAJAK OTOMATIS YANG LEBIH PINTAR
+                // Hanya pisahkan pajak jika BUKAN minimarket dan nominalnya masuk akal
+                if (!isMinimarket && taxAmount > 0 && finalAmount > taxAmount) {
+                    let calcSubBill = finalAmount - taxAmount;
+                    let calculatedTaxPercent = Math.round((taxAmount / calcSubBill) * 100);
+                    
+                    // Validasi: Pajak restoran/kafe umumnya 5% sampai 25% (termasuk service)
+                    if (calculatedTaxPercent >= 5 && calculatedTaxPercent <= 25) {
+                        subBill = calcSubBill;
+                        taxInput.value = calculatedTaxPercent;
+                        taxPercent = calculatedTaxPercent;
+                    } else {
+                        subBill = finalAmount;
+                    }
+                } else {
+                    // Untuk struk bensin atau minimarket, tembak angka kotornya langsung
+                    subBill = finalAmount; 
+                }
+
+                // Tembak hasil akhir ke UI layar
+                subBillInput.value = formatRupiah(subBill);
+                calculateSplit();
+                
+                scanStatusText.innerText = 'Berhasil diproses!';
+                scanProgressText.innerText = '100%';
+                aiStatusBadge.innerText = 'SUCCESS';
+                aiStatusBadge.className = 'text-[10px] uppercase tracking-wider font-bold bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-md border border-emerald-500/50';
             } catch (error) {
                 console.error("Kesalahan sistem:", error);
                 scanStatusText.innerText = 'Gagal membaca otomatis.';

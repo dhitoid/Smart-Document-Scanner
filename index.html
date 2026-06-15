@@ -338,6 +338,22 @@
                 } else {
                     throw new Error("Pola angka gagal diidentifikasi");
                 }
+            } catch (error) {
+                console.error("Kesalahan sistem:", error);
+                scanStatusText.innerText = 'Gagal membaca otomatis.';
+                aiStatusBadge.innerText = 'FAILED';
+                aiStatusBadge.className = 'text-[10px] uppercase tracking-wider font-bold bg-rose-500/20 text-rose-400 px-2 py-1 rounded-md border border-rose-500/50';
+            } finally {
+                laserLine.classList.remove('animate-laser');
+                laserLine.classList.add('hidden');
+                
+                setTimeout(() => {
+                    scannerBox.classList.add('hidden');
+                    uploadBox.classList.remove('hidden');
+                    aiStatusBadge.innerText = 'READY';
+                    aiStatusBadge.className = 'text-[10px] uppercase tracking-wider font-bold bg-zinc-800 text-zinc-400 px-2 py-1 rounded-md border border-zinc-700';
+                }, 3000);
+            }
         });
 
         // Event listener untuk memformat otomatis saat diketik manual

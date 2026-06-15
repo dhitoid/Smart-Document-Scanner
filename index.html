@@ -267,69 +267,68 @@
                 let taxCandidate = 0;
                 let totalCandidate = 0;
 
-                // LOGIKA OCR BARU: Deteksi Subtotal, Pajak, dan pembersihan angka yang lebih akurat
+                // LOGIKA OCR SUPER CANGGIH VERSI BARU
                 lines.forEach(line => {
                     const lowerLine = line.toLowerCase();
                     
-                    let maxNum = 0;
-                    // Ambil semua kumpulan angka, titik, dan koma di baris tersebut
-                    const matches = line.match(/[\d.,]+/g);
-                    
-                    if (matches) {
-                        matches.forEach(m => {
-                            // 1. Buang desimal .00 atau ,00 di belakang (contoh: 15.000,00 jadi 15.000)
-                            let cleanNum = m.replace(/[.,]00$/g, '');
-                            // 2. Buang sisa titik, koma, atau spasi (contoh: 15.000 jadi 15000)
-                            cleanNum = cleanNum.replace(/[.,\s]/g, '');
-                            
-                            const num = Number(cleanNum);
-                            // Ambil angka yang lebih dari 100 (menghindari terekstraknya angka persentase seperti "10" atau "11")
-                            if (num > maxNum && num > 100) { 
-                                maxNum = num;
-                            }
-                        });
-                    }
+                    // 1. Skip baris waktu/tanggal/shift agar nomor seri/tanggal (contoh: 16/03/2026) tidak terbaca sebagai uang miliaran
+                    if (lowerLine.includes('waktu') || lowerLine.includes('tanggal') || lowerLine.includes('shift') || lowerLine.includes('no.')) return;
 
-                    if (maxNum > 0) {
-                        // Cari keyword spesifik di baris tersebut
-                        if (lowerLine.includes('subtotal') || lowerLine.includes('sub total') || lowerLine.includes('amount')) {
-                            subtotalCandidate = Math.max(subtotalCandidate, maxNum);
-                        } else if (lowerLine.includes('pajak') || lowerLine.includes('tax') || lowerLine.includes('ppn') || lowerLine.includes('pb1') || lowerLine.includes('pb 1')) {
-                            taxCandidate = Math.max(taxCandidate, maxNum);
-                        } else if (lowerLine.includes('total') || lowerLine.includes('bayar') || lowerLine.includes('due') || lowerLine.includes('jumlah')) {
-                            totalCandidate = Math.max(totalCandidate, maxNum);
+                    // 2. Deteksi keyword penting (Disesuaikan untuk struk Pertamina, Restoran, & Kasir Umum)
+                    const isTotal = lowerLine.includes('total') || lowerLine.includes('bayar') || lowerLine.includes('due') || lowerLine.includes('dibayar');
+                    const isSubtotal = lowerLine.includes('subtotal') || lowerLine.includes('tanpa subsidi') || lowerLine.includes('amount');
+                    const isTax = lowerLine.includes('pajak') || lowerLine.includes('tax') || lowerLine.includes('ppn') || lowerLine.includes('pb1');
+
+                    if (isTotal || isSubtotal || isTax) {
+                        // 3. Trik Jitu: Tangkap SEMUA blok angka di baris tersebut
+                        // Regex ini mengizinkan spasi, titik, dan koma di dalam angka (contoh: "308, 430" tetap terbaca satu kesatuan)
+                        const numberBlocks = line.match(/\d(?:[\d\s.,]*\d)?/g);
+                        
+                        if (numberBlocks) {
+                            // Ambil blok angka paling terakhir/paling kanan (karena letak harga di struk selalu di ujung kanan)
+                            let lastBlock = numberBlocks[numberBlocks.length - 1];
+                            
+                            // Bersihkan desimal .00 atau ,00 di ujung jika ada
+                            lastBlock = lastBlock.replace(/[.,]00$/g, '');
+                            // Hapus semua simbol dan spasi, sisakan murni angkanya saja
+                            const num = Number(lastBlock.replace(/[^\d]/g, ''));
+                            
+                            // Validasi angka masuk akal (hindari angka kecil seperti qty atau kasir)
+                            if (num >= 1000) {
+                                if (isTotal) totalCandidate = Math.max(totalCandidate, num);
+                                if (isSubtotal) subtotalCandidate = Math.max(subtotalCandidate, num);
+                                if (isTax) taxCandidate = Math.max(taxCandidate, num);
+                            }
                         }
                     }
                 });
 
-                // Penentuan Akhir Subtotal
+                // Penentuan Akhir Nominal (Prioritas Pembacaan)
                 let finalSubtotal = subtotalCandidate;
                 
-                // Jika keyword subtotal tidak ketemu, tapi ada Total dan Pajak
+                // Jika ga nemu kata "Subtotal" (seperti di struk Pertamina), fallback ke "Dibayar / Total"
                 if (finalSubtotal === 0 && totalCandidate > 0) {
                     if (taxCandidate > 0 && totalCandidate > taxCandidate) {
-                        finalSubtotal = totalCandidate - taxCandidate; // Asumsi total adalah Grand Total
+                        finalSubtotal = totalCandidate - taxCandidate; // Kurangi pajak jika kebacanya Grand Total
                     } else {
-                        finalSubtotal = totalCandidate; // Fallback ke total jika tidak ada pajak
+                        finalSubtotal = totalCandidate; 
                     }
                 }
                 
                 if (finalSubtotal > 0) {
-                    // Update Subtotal
                     subBill = finalSubtotal;
                     subBillInput.value = formatRupiah(finalSubtotal);
                     
-                    // Auto-Kalkulasi Persentase Pajak ke UI!
+                    // Otomatis Hitung Pajak Jadi Persen ke UI!
                     if (taxCandidate > 0) {
                         let calculatedTaxPercent = Math.round((taxCandidate / finalSubtotal) * 100);
-                        // Validasi persentase masuk akal (di Indonesia biasanya max 15-20%)
                         if (calculatedTaxPercent > 0 && calculatedTaxPercent <= 25) {
                             taxInput.value = calculatedTaxPercent;
                             taxPercent = calculatedTaxPercent;
                         }
                     }
 
-                    calculateSplit(); // Jalankan fungsi bagi strukmu
+                    calculateSplit(); 
                     
                     scanStatusText.innerText = 'Berhasil diproses!';
                     scanProgressText.innerText = '100%';
